@@ -1,0 +1,1357 @@
+---
+title: "Notes on reproductive interference"
+output: 
+  pdf_document:
+    fig_caption: yes
+bibliography: library.bib
+citation_package: natbib
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Fecundity \& survival data
+
+We used Leslie matrices [@Leslie1945; @Gascoigne2023] to project population growth while accounting for costly heterospecific matings to determine what---if any---frequency of *C. macrosperma* is required to outcompete *C. nouraguensis*, as a basis for deciding on starting frequencies for experiments. Using common notation [@Hastings1997], the fecundity vector is referred to as *mx* while the survival vector is *sx*. The death day was recorded for each worm, but some replicates have missing values, indicating either contamination or (presumably) accidental suicide by jumping onto the dish wall and dessicating. We omitted any replicates with missing death day values, and created a function to calculate the fraction of each stage to survive to the next stage.  
+
+```{r, tidy=FALSE}
+# get survival vector, the probability that each age class survives to the next:
+dailySurvival = function(day, deathDayVector){
+  res = 0 # set survival to zero if no individuals died after day
+  if(length(which(deathDayVector > day)) > 0){
+    # length(which(deathDayVector > day)) is the number alive on day
+    # length(which(deathDayVector > (day + 1))) is the number surviving to the next day
+    res = length(which(deathDayVector > (day + 1)))/length(which(deathDayVector > day))
+    }
+  return(res)
+  } # end function to compute daily survival probability
+```
+
+We now load in the data on fecundity and lifespan in conspecific and heterospecific matings.
+
+```{r, tidy=FALSE}
+# import data on survival & fecundity post-heterospecific mating
+conheteroDataWide = read.csv("FileS4_FitnessAndLifespan_MacroVsNoura.csv")
+conheteroWideMatrix = as.data.frame(matrix(unlist(conheteroDataWide[,7:14]),
+                      nrow = length(conheteroDataWide[,1]), ncol = length(7:14),
+                      byrow = F))
+colnames(conheteroWideMatrix) <- paste("x", c(0,1,2,3,4,5,6,7), sep=".")
+conheteroWideMatrix$treatment = conheteroDataWide$Treatment
+conheteroWideMatrix$id = conheteroDataWide$ID
+
+# this is the vector of days when worms were alive
+  # the last worm died on day 16 so the last day it was alive was day 15
+# day vector transposed (t function) so that R recognizes it as a column
+dayVectorCon = t(c(0:(max(conheteroDataWide$death_day,na.rm=T)-1)))
+
+deathDay.macrocon = conheteroDataWide$death_day[conheteroDataWide$Treatment ==
+                                                "A_macro_con"]
+sx.macro.con = apply(dayVectorCon, 2, dailySurvival, 
+                     deathDayVector = deathDay.macrocon)
+
+deathDay.macrohetero = conheteroDataWide$death_day[conheteroDataWide$Treatment ==
+                                                   "D_macro_hetero"]
+sx.macro.hetero = apply(dayVectorCon, 2, dailySurvival, 
+                        deathDayVector = deathDay.macrohetero)
+
+deathDay.nouracon = conheteroDataWide$death_day[conheteroDataWide$Treatment ==
+                                                  "B_noura_con"]
+sx.noura.con = apply(dayVectorCon, 2, dailySurvival, 
+                     deathDayVector = deathDay.nouracon)
+
+deathDay.nourahetero = conheteroDataWide$death_day[conheteroDataWide$Treatment ==
+                                                     "C_noura_hetero"]
+sx.noura.hetero = apply(dayVectorCon, 2, dailySurvival, 
+                        deathDayVector = deathDay.nourahetero)
+
+# matrix to keep track of fecundity data for each replicate
+conheteroLong = reshape(conheteroWideMatrix, idvar="id", varying=list(1:8),
+                times = c(0,1,2,3,4,5,6,7), direction="long", v.names="eggs")
+
+# aggregate fecundity data by treatment
+conheteroFec = aggregate(conheteroDataWide[ ,7:14], 
+               by = list(conheteroDataWide$Treatment), FUN="mean", na.rm=T)
+```
+
+We repeat this process for the lifetime fecundity data, for comparison. These data represent conspecific matings only, but females are less likely to be sperm limited than in the heterospecific mating comparisons above.
+
+## Summary of survival data
+
+Day zero corresponds to the first day of egg laying. Note that the survival curves are all similar, save for heterospecifically mated *C. nouraguensis* females.
+
+```{r, tidy=FALSE}
+# import data on survival & fecundity post-heterospecific mating
+lifetimeDataWideD1Start = read.table("FileS1_Female_Lifetime_Fecundity.txt", 
+                                     sep = "\t", header = TRUE)
+# need both datasets to start at day 0 (with zero fecundity)
+lifetimeDataWide = data.frame(lifetimeDataWideD1Start[,1:2],
+                      d0 = rep(0,length(lifetimeDataWideD1Start[,1])),
+                      lifetimeDataWideD1Start[,3:length(lifetimeDataWideD1Start[1,])])
+lifetimeWideMatrix = as.data.frame(matrix(unlist(lifetimeDataWide[,3:11]),
+                      nrow = length(lifetimeDataWide[,1]), ncol = length(3:11),
+                      byrow = F))
+colnames(lifetimeWideMatrix) <- paste("x", 
+                                      gsub("d","",
+                                           colnames(lifetimeDataWide[3:11])), sep=".")
+lifetimeWideMatrix$treatment = lifetimeDataWide$Species
+lifetimeWideMatrix$id = lifetimeDataWide$WormID
+
+# the vector of days when worms died has a "d" prefix that makes it difficult
+  # for R to parse so remove:
+deathDayCon = lifetimeDataWide$dayDeath
+lifetimeDataWide$deathDay = as.numeric(gsub("d", "", deathDayCon))
+# this is the vector of days when worms were alive
+  # the last worm died on day 16 so the last day it was alive was day 15
+# day vector transposed (t function) so that R recognizes it as a column
+dayVectorLife = t(c(0:(max(lifetimeDataWide$deathDay,na.rm=T)-1)))
+
+deathDay.macrolife = lifetimeDataWide$deathDay[lifetimeDataWide$Species ==
+                                                "C. macrosperma"]
+sx.macro.life = apply(dayVectorLife, 2, dailySurvival, 
+                     deathDayVector = deathDay.macrolife)
+
+deathDay.nouralife = lifetimeDataWide$deathDay[lifetimeDataWide$Species ==
+                                                  "C. nouraguensis"]
+sx.noura.life = apply(dayVectorLife, 2, dailySurvival, 
+                     deathDayVector = deathDay.nouralife)
+
+# matrix to keep track of fecundity data for each replicate
+lifetimeLong = reshape(lifetimeWideMatrix, idvar="id", varying=list(0:9),
+                times = as.numeric(gsub("d","",colnames(lifetimeDataWide[3:11]))), 
+                direction="long", v.names="eggs")
+
+# aggregate fecundity data by treatment
+lifetimeFec = aggregate(lifetimeDataWide[ ,3:11], 
+               by = list(lifetimeDataWide$Species), FUN="mean", na.rm=T)
+lifetimeFecDays = as.numeric(gsub("d", "", colnames(lifetimeDataWide[,3:11])))
+
+# generate mx vectors to assemble Leslie matrices below
+# mx vectors from total fecundity data (conspecific and heterospecific matings)
+mx.macro.con =    conheteroFec[which(conheteroFec$Group.1 == "A_macro_con"), 2:9]
+mx.noura.con =    conheteroFec[which(conheteroFec$Group.1 == "B_noura_con"), 2:9]
+mx.noura.hetero = conheteroFec[which(conheteroFec$Group.1 == "C_noura_hetero"), 2:9]
+mx.macro.hetero = conheteroFec[which(conheteroFec$Group.1 == "D_macro_hetero"), 2:9]
+
+# mx vectors from lifetime fecundity data (conspecific matings only)
+mx.macro.life.missing = c(0,
+                          unlist(lifetimeFec[which(lifetimeFec$Group.1 ==
+                                                     "C. macrosperma"), 
+                                             3:10]))
+if(any(is.nan(mx.macro.life.missing))){
+  mx.macro.life.missing[is.nan(mx.macro.life.missing)] = 0}
+mxmlifefx = approxfun(x=lifetimeFecDays, y = mx.macro.life.missing)
+mx.macro.lifeAll = mxmlifefx(min(lifetimeFecDays):max(lifetimeFecDays))
+mx.macro.life = mx.macro.lifeAll[1:max(which(mx.macro.lifeAll>0))]
+
+mx.noura.life.missing = c(0,
+                          unlist(lifetimeFec[which(lifetimeFec$Group.1 == 
+                                                     "C. nouraguensis"), 
+                                             3:10]))
+if(any(is.nan(mx.noura.life.missing))){
+  mx.noura.life.missing[is.nan(mx.noura.life.missing)] = 0}
+mxnlifefx = approxfun(x=lifetimeFecDays, y = mx.noura.life.missing)
+mx.noura.lifeAll = mxnlifefx(min(lifetimeFecDays):max(lifetimeFecDays))
+mx.noura.life = mx.noura.lifeAll[1:max(which(mx.noura.lifeAll>0))]
+```
+
+## Summary of fecundity data (for females only)
+
+For the purpose of inferring the cost of heterospecific matings for *C. nouraguensis*, we make the simplifying assumption that *C. macrosperma* females experience the same survival and fecundity regardless of whether they have mated with *C. nouraguensis* males, so that we need not track the fraction of *C. macrosperma* females with heterospecific matings. In contrast, *C. nouraguensis* females will experience a reduction in their fecundity following a heterospecific mating.
+
+## Assortative mating
+If mating were perfectly assortative, *C. nouraguensis* females would never experience a cost from heterospecific matings, whereas if mating were entirely random, the cost would be high. The data suggest a low (but nonzero) level of heterospecific mating.
+
+Note that these levels of assortative mating represent the fraction of all sampled females with foreign sperm, rather than the fraction of females with foreign rather than conspecific sperm. It was not feasible to determine the fraction of females with any sperm, but we estimate that virtually all females would have had some sperm, so we treat these data as the fraction of females receiving heterospecific sperm in addition to conspecific sperm.
+
+```{r, tidy=FALSE}
+# examine assortative mating data:
+assortM = read.table("FileS3_assortMating.txt", header = T)
+# calculate fraction of females with foreign sperm:
+assortM$frac.wrong <- assortM$numf.wrong / assortM$numf
+
+macro = assortM[assortM$focal.f == "macrosperma", ]
+noura = assortM[assortM$focal.f == "nouraguensis", ]
+
+glmNoura = glm(cbind(noura$numf.wrong,noura$numf - noura$numf.wrong) ~ noura$ratio,
+           family = binomial(link = "cloglog"))
+glmMacro = glm(cbind(macro$numf.wrong,macro$numf - macro$numf.wrong) ~ macro$ratio,
+           family = binomial(link = "cloglog"))
+predGLM = function(fracFocal, glmObject){
+  predHeterospRaw = coef(glmObject)[[1]] + coef(glmObject)[[2]] * fracFocal
+  return(1-exp(-exp(predHeterospRaw)))
+  }
+predGLM24 = function(fracFocal, glmObject){
+  predHeterospRaw = coef(glmObject)[[1]] + coef(glmObject)[[2]] * fracFocal
+  return(1-exp(-4*exp(predHeterospRaw)))
+  }
+
+```
+
+The assortative mating experiment was carried out for six hours, but the Leslie matrix projections will take place in daily increments. To project those experimental results to 24 hours, we assume that heterospecific mating occurs at a rate that is constant through time but that varies with the fraction of the focal species in the community. Let $p$ be the per day invasion rate, a function of the fraction of the focal species present, $x$. Therefore,
+
+\begin{equation}
+\mbox{frac}_{\textit{inv, 6hr}} = 1-\exp[-p(x) \times 0.25]
+\end{equation}
+
+since six hours is one quarter of a day. Solving for $p(x)$ gives
+
+\begin{equation}
+p(x) = -4 \times \log[1-\mbox{frac}_{\textit{inv, 6hr}}].\label{eq:px}
+\end{equation}
+
+Note that $p$ will vary with $x$ since the fraction of females with heterospecific sperm after six hours varies with $x$. The fraction of females with heterospecific sperm after one day is then
+
+\begin{equation}
+\mbox{frac}_{\textit{inv. per day}} = 1-\exp[-p(x)] = 1-\exp(4 \times \log[1-\mbox{frac}_{\textit{inv, 6hr}}]),
+\end{equation}
+
+which we can then regress against the fraction of the focal species to obtain the fraction of females with heterospecific sperm (\texttt{glmMacro} and \texttt{glmNoura}) to get that rate. We use the complementary log-log link function to constrain regressed proportions to vary between zero and one.
+
+```{r assort, echo=T, tidy=F, echo = FALSE, fig.width = 6.5, fig.height = 3, fig.cap="\\label{fig:assort} Estimating the fraction of females with heterospecific sperm for *C. macrosperma* (blue triangles) and *C. nouraguensis* (red squares). Solid lines indicate glm fits to data on fraction of females with heterospecific sperm at six hours, while dotted lines refer to the projected fraction of females with heterospecific sperm after one day/24 hours."}
+macroConColor = "darkblue"
+macroHeteroColor = "dodgerblue"
+nouraConColor = "darkred"
+nouraHeteroColor = "red"
+
+ratios = seq(from = 0, to = 1,by=0.01)
+par(mfrow = c(1, 1), bty = 'n', mar = c(4,5,1,1), oma = c(0,0,0,0))
+plot(noura$ratio, noura$numf.wrong/noura$numf, col = nouraHeteroColor, pch = 15, yaxt = 'n', 
+     xlim = c(0, 1), ylim = c(0, 1), xlab = "Fraction of focal species", 
+     ylab = "Fraction of females with\nheterospecific sperm")
+axis(2, las = 2, at = seq(0, 1, by = 0.2))
+points(macro$ratio, macro$numf.wrong/noura$numf, col = macroHeteroColor, pch = 17) 
+
+points(ratios, predGLM(ratios, glmNoura), type = 'l', col = nouraHeteroColor)
+points(ratios, predGLM(ratios, glmMacro), type = 'l', col = macroHeteroColor)
+
+points(ratios, predGLM24(ratios, glmNoura), type = 'l', col = nouraHeteroColor, lty = 3)
+points(ratios, predGLM24(ratios, glmMacro), type = 'l', col = macroHeteroColor, lty = 3)
+
+points(c(0,1), c(1,0), type='l', lty=5)
+
+legend(x = "topright", 
+       legend = c("Random", expression(italic("C. nouraguensis")), expression(italic("projected to 24 hours")),
+                  expression(italic("C. macrosperma")), expression(italic("projected to 24 hours"))),
+       col = c("black", nouraHeteroColor, nouraHeteroColor, macroHeteroColor, macroHeteroColor), 
+       pch = c(NA, 15, NA, 17, NA), lty = c(5, 1, 3, 1, 3), y.intersp = 1.2, bty = 'n')
+```
+
+# Putting it all together
+
+Sex ratio data fall close to 50\% for both *C. macrosperma* and *C. nouraguensis* (unpublished data), so we assume a 50\% sex ratio for simplicity. We assume that development from egg to maturity requires two days. Since mating is assumed to occur on day 0, and the data begin on day 1, at least three days must pass before any fecundity is realized.
+
+```{r, tidy=FALSE}
+# make Leslie matrix
+immatureStages = 3 # days
+# macro
+sexRatioMacro = 0.5
+macroLeslie = matrix(0, nrow = length(dayVectorCon) + immatureStages, 
+                     ncol = length(dayVectorCon) + immatureStages)
+macroLeslie[1, c((immatureStages + 1):(immatureStages + 
+                                       length(mx.macro.con)))] <- 
+                                       t(unname(mx.macro.con * sexRatioMacro)) 
+# first row is the age-specific fecundities
+# lower off-diagonal entries are the survival fractions:
+macroLeslie[cbind(c(2:length(macroLeslie[ , 1])), 
+                  c(1:(length(macroLeslie[ , 1]) - 1)))] <- c(rep(1, immatureStages - 1), 
+                                                                sx.macro.con)
+
+# macro heterospecific
+macroHetero = matrix(0, nrow = length(dayVectorCon) + immatureStages, 
+                     ncol = length(dayVectorCon) + immatureStages)
+macroHetero[1, c((immatureStages + 1):(immatureStages + length(mx.macro.hetero)))] <- 
+  t(unname(mx.macro.hetero * sexRatioMacro)) 
+# first row is the age-specific fecundities
+# lower off-diagonal entries are the survival fractions:
+macroHetero[cbind(c(2:length(macroHetero[ , 1])), 
+                  c(1:(length(macroHetero[ , 1]) - 1)))] <- c(rep(1, immatureStages - 1), 
+                                                              sx.macro.hetero)
+
+# noura
+sexRatioNoura = 0.5
+nouraLeslie = matrix(0, nrow = length(dayVectorCon) + immatureStages, 
+                     ncol = length(dayVectorCon) + immatureStages)
+nouraLeslie[1, c((immatureStages + 1):(immatureStages + length(mx.noura.con)))] <- 
+  t(unname(mx.noura.con * sexRatioNoura)) # first row is the age-specific fecundities
+# lower off-diagonal entries are the survival fractions:
+nouraLeslie[cbind(c(2:length(nouraLeslie[ , 1])), 
+                  c(1:(length(nouraLeslie[ , 1]) - 1)))] <- c(rep(1, immatureStages - 1), 
+                                                              sx.noura.con)
+
+# noura heterospecific
+nouraHetero = matrix(0, nrow = length(dayVectorCon) + immatureStages, 
+                     ncol = length(dayVectorCon) + immatureStages)
+nouraHetero[1, c((immatureStages + 1):(immatureStages + 
+                                         length(mx.noura.hetero)))] <- 
+                                      t(unname(mx.noura.hetero * sexRatioMacro)) 
+# first row is the age-specific fecundities
+# lower off-diagonal entries are the survival fractions:
+nouraHetero[cbind(c(2:length(nouraHetero[ , 1])), 
+                  c(1:(length(nouraHetero[ , 1]) - 1)))] <- 
+                                      c(rep(1, immatureStages - 1), sx.noura.hetero)
+
+```
+
+## Case 1: no interspecific mating
+
+We first project frequency of *C. nouraguensis* and *C. macrosperma* assuming no interspecific mating.
+
+```{r, tidy=FALSE}
+futureCompositionNoHeterosp = function(startingMacroProportion, days, 
+                    n0 = c(rep(0, immatureStages - 1), 1, 
+                           rep(0, length(macroLeslie[1,]) - immatureStages)), 
+                    macroLeslief = macroLeslie, nouraLeslief = nouraLeslie, 
+                    macroHeterof = macroHetero, nouraHeterof = nouraHetero, 
+                    returnProportion = T){
+  # function to project future composition of mixed population of macro & noura
+  if(startingMacroProportion < 0 | startingMacroProportion > 1){
+    cat("Warning: startingMacroProportion requires a proportion, returning NA.\n")
+    res=NA
+    } # end conditional to check for proportion
+  if(startingMacroProportion >= 0 & startingMacroProportion <= 1){
+    if(returnProportion == F){
+      # The function returns the final proportion by default, but if returnProportion
+        # is false then the function returns the time series of noura and macro 
+        # abundance through time.
+      resNum = as.data.frame(matrix(NA, nrow = days, ncol = 4))
+      colnames(resNum) <- c("m.con", "n.con", "m.hetero", "n.hetero")
+      # This conditional sets up an empty matrix that will be filled in
+        # during the for loop below
+      }
+    
+    # macro
+    macroN = startingMacroProportion * n0
+    # vectors to track conspecific & heterospecifically mated females
+    con.macroN = macroN
+    hetero.macroN = rep(0, length(macroN))
+    
+    # noura
+    nouraN = (1 - startingMacroProportion) * n0
+    con.nouraN = nouraN
+    hetero.nouraN = rep(0, length(nouraN)) 
+    # initially no females in heterospecifically mated vector
+    
+    for (i in 1:days) {
+      # first calculate fraction of adults in each species:
+      fracAdultMacro = sum(macroN[-(1:2)]) / (sum(macroN[-(1:2)]) + 
+                                                sum(nouraN[-(1:2)]))
+      fracAdultNoura = sum(nouraN[-(1:2)]) / (sum(macroN[-(1:2)]) + 
+                                                sum(nouraN[-(1:2)]))
+      
+      # second calculate the expected fraction of adult macro 
+        # & noura females in heterospecific matings:
+      fracHeteroMacro = 0
+      fracHeteroNoura = 0
+      # At extremely high fractions of either species, the predicted fraction
+        # of females in heterospecific matings can be less than zero, 
+        # which would generate questionable results. I therefore set the fraction
+        # of heterospecific matings to zero in those cases.
+      
+      # day 0 females are the immatureStages-th entry in the population vector
+      macroD0.hetero = fracHeteroMacro * con.macroN[3]
+      nouraD0.hetero = fracHeteroNoura * con.nouraN[3]
+
+      # eggs from heterospecifically mated females
+        # those eggs need to be moved to the conspecific-mated vector 
+        # so they don't suffer ill-effects of 
+        # heterospecific mating when they mature
+      macroEgg.hetero = hetero.macroN[1]
+      nouraEgg.hetero = hetero.nouraN[1]
+      
+      con.macroN    = con.macroN    + c(macroEgg.hetero, 0, 
+                                        -macroD0.hetero, rep(0, length(macroN) - 3))
+      hetero.macroN = hetero.macroN - c(macroEgg.hetero, 0, 
+                                        -macroD0.hetero, rep(0, length(macroN) - 3))
+      
+      con.macroN = macroLeslief %*% con.macroN
+      hetero.macroN = macroHeterof %*% hetero.macroN
+      macroN = con.macroN + hetero.macroN
+      
+      con.nouraN    = con.nouraN    + c(nouraEgg.hetero, 0, 
+                                        -nouraD0.hetero, rep(0, length(nouraN) - 3))
+      hetero.nouraN = hetero.nouraN - c(nouraEgg.hetero, 0, 
+                                        -nouraD0.hetero, rep(0, length(nouraN) - 3))
+      
+      con.nouraN = nouraLeslief %*% con.nouraN
+      hetero.nouraN = nouraHeterof %*% hetero.nouraN
+      nouraN = con.nouraN + hetero.nouraN
+      
+      if(returnProportion == F){
+        # fill in emtpy matrix with numbers of heterospecifically and 
+          # conspecifically-mated females of each species
+        resNum$m.con[i]    = sum(con.macroN)
+        resNum$n.con[i]    = sum(con.nouraN)
+        resNum$m.hetero[i] = sum(hetero.macroN)
+        resNum$n.hetero[i] = sum(hetero.nouraN)
+        } # end if statement to fill in matrix if returnProportion is false
+      
+      } # end for loop to calculate new stage numbers
+    
+    numMacro = sum(macroN)
+    numNoura = sum(nouraN)
+    res = numMacro / (numNoura + numMacro)
+    # the following conditional returns numbers rather than proportions
+      # (if that option is sepected)
+    if(returnProportion == F){res=resNum}
+    } # end condition that proportion is a plausible proportion
+  return(res)
+  } # end future composition function
+```
+
+## Case 2: conservative cost
+
+We now assume that heterospecific mating can only occur for females on day 0, who then experience a drop in survival \& fecundity given by the experimental data. The Leslie matrix tracks only female transitions, so the implicit assumption is that males are an unobserved but equivalent population in terms of numbers and age structure.
+
+Regarding the structure of the code, each Leslie matrix is used to specify the transitions from each stage (here days of development/maturity). Transitions can be females laying eggs or worms that are a certain number of days old surviving to the following day. We therefore specify separate Leslie matrices for conspecifically- and heterospecifically-mated females in the two species for a total of four matrices. The Leslie matrices represent the transitions, and we track the numbers of individuals in each subpopulation (heterospecifically- and conspecifically-mated females) with two separate vectors (\texttt{con.nouraN}, \texttt{hetero.nouraN}, \texttt{con.macroN},\texttt{hetero.macroN}).
+
+After each transition there may be more newly matured females to sort into the conspecifically- and heterospecifically mated subpopulations. Further, the heterospecifically-mated females represent a subpopulation with lower survival and fecundity, but there is no evidence that their offspring suffer the same consequences. Before projecting the growth of the two subpopulations (conspecific and heterospecific matings), we run two calculations:
+
+* the number of newly matured females (corresponding to day 0 in experiment 1, day -1 in experiment 2) encountering foreign sperm (denoted \texttt{fracHeteroMacro}, and \texttt{fracHeteroNoura})
+* the number of eggs laid by heterospecific females (\texttt{macroD0.hetero}, and \texttt{nouraD0.hetero})
+
+The number of newly matured females encountering foreign sperm is subtracted from the conspecific vector and added to the heterospecific vector. Since the eggs laid by heterospecifically mated females will follow the normal life history (unless they die or encounter foreign sperm), those eggs are added to the conspecific vector and subtracted from the heterospecific vector.
+
+```{r, tidy=FALSE}
+futureCompositionConservative = function(startingMacroProportion, days, 
+                    n0 = c(rep(0, immatureStages - 1), 1, 
+                           rep(0, length(macroLeslie[1,]) - immatureStages)), 
+                    macroGLM = glmMacro, nouraGLM = glmNoura, 
+                    macroLeslief = macroLeslie, nouraLeslief = nouraLeslie, 
+                    macroHeterof = macroHetero, nouraHeterof = nouraHetero, 
+                    returnProportion = T){
+  # function to project future composition of mixed population of macro & noura
+  if(startingMacroProportion < 0 | startingMacroProportion > 1){
+    cat("Warning: startingMacroProportion requires a proportion, returning NA.\n")
+    res=NA
+    } # end conditional to check for proportion
+  if(startingMacroProportion >= 0 & startingMacroProportion <= 1){
+    if(returnProportion == F){
+      # The function returns the final proportion by default, but if returnProportion
+        # is false then the function returns the time series of noura and macro 
+        # abundance through time.
+      resNum = as.data.frame(matrix(NA, nrow = days, ncol = 4))
+      colnames(resNum) <- c("m.con", "n.con", "m.hetero", "n.hetero")
+      # This conditional sets up an empty matrix that will be filled in
+        # during the for loop below
+      }
+    
+    # macro
+    macroN = startingMacroProportion * n0
+    # vectors to track conspecific & heterospecifically mated females
+    con.macroN = macroN
+    hetero.macroN = rep(0, length(macroN))
+    
+    # noura
+    nouraN = (1 - startingMacroProportion) * n0
+    con.nouraN = nouraN
+    hetero.nouraN = rep(0, length(nouraN)) 
+    # initially no females in heterospecifically mated vector
+    
+    for (i in 1:days) {
+      # first calculate fraction of adults in each species:
+      fracAdultMacro = sum(macroN[-(1:2)]) / (sum(macroN[-(1:2)]) + 
+                                                sum(nouraN[-(1:2)]))
+      fracAdultNoura = sum(nouraN[-(1:2)]) / (sum(macroN[-(1:2)]) + 
+                                                sum(nouraN[-(1:2)]))
+      
+      # second calculate the expected fraction of adult macro 
+        # & noura females in heterospecific matings:
+      fracHeteroMacro = predGLM(fracAdultMacro, macroGLM)
+      fracHeteroNoura = predGLM(fracAdultNoura, nouraGLM)
+      # At extremely high fractions of either species, the predicted fraction
+        # of females in heterospecific matings can be less than zero, 
+        # which would generate questionable results. I therefore set the fraction
+        # of heterospecific matings to zero in those cases.
+      
+      # day 0 females are the immatureStages-th entry in the population vector
+      macroD0.hetero = fracHeteroMacro * con.macroN[3]
+      nouraD0.hetero = fracHeteroNoura * con.nouraN[3]
+
+      # eggs from heterospecifically mated females
+        # those eggs need to be moved to the conspecific-mated vector 
+        # so they don't suffer ill-effects of 
+        # heterospecific mating when they mature
+      macroEgg.hetero = hetero.macroN[1]
+      nouraEgg.hetero = hetero.nouraN[1]
+      
+      con.macroN    = con.macroN    + c(macroEgg.hetero, 0, 
+                                        -macroD0.hetero, rep(0, length(macroN) - 3))
+      hetero.macroN = hetero.macroN - c(macroEgg.hetero, 0, 
+                                        -macroD0.hetero, rep(0, length(macroN) - 3))
+      
+      con.macroN = macroLeslief %*% con.macroN
+      hetero.macroN = macroHeterof %*% hetero.macroN
+      macroN = con.macroN + hetero.macroN
+      
+      con.nouraN    = con.nouraN    + c(nouraEgg.hetero, 0, 
+                                        -nouraD0.hetero, rep(0, length(nouraN) - 3))
+      hetero.nouraN = hetero.nouraN - c(nouraEgg.hetero, 0, 
+                                        -nouraD0.hetero, rep(0, length(nouraN) - 3))
+      
+      con.nouraN = nouraLeslief %*% con.nouraN
+      hetero.nouraN = nouraHeterof %*% hetero.nouraN
+      nouraN = con.nouraN + hetero.nouraN
+      
+      if(returnProportion == F){
+        # fill in emtpy matrix with numbers of heterospecifically and 
+          # conspecifically-mated females of each species
+        resNum$m.con[i]    = sum(con.macroN)
+        resNum$n.con[i]    = sum(con.nouraN)
+        resNum$m.hetero[i] = sum(hetero.macroN)
+        resNum$n.hetero[i] = sum(hetero.nouraN)
+        } # end if statement to fill in matrix if returnProportion is false
+      
+      } # end for loop to calculate new stage numbers
+    
+    numMacro = sum(macroN)
+    numNoura = sum(nouraN)
+    res = numMacro / (numNoura + numMacro)
+    # the following conditional returns numbers rather than proportions
+      # (if that option is sepected)
+    if(returnProportion == F){res=resNum}
+    } # end condition that proportion is a plausible proportion
+  return(res)
+  } # end future composition function
+```
+
+We project *C. nouraguensis* proportions under the conservative assumptions that (1) all heterospecific mating that occurs in a  day happens in the first six hours; and (2) only day 0 females suffer ill-effects from heterospecific sperm invasion.
+
+# Case 3: Higher cost (females suffer ill-effects of foreign sperm if exposed after day 0)
+
+We then project *C. nouraguensis* proportions relaxing the conservative assumptions above, by projecting the number of heterospecific matings to 24 hours (rather than merely six hours as assumed above) and by allowing females to incur fecundity and survival costs if they mate with the other species after day 0. Specifically, we assume that heterospecific mating occurs at a rate that stays constant over the course of each day, calculated based on the fraction of the focal species present on that day. We assume that any mature female can suffer ill-effects following invasion by foreign sperm. For example, a *C. nouraguensis* female that encounters foreign sperm on her 5^th^ day has approximately a 75\% chance of surviving to day 6, the same as a female that survived to her 5^th^ day after encountering foreign sperm on day zero.
+
+```{r, tidy=FALSE}
+futureCompositionHigherCost = function(startingMacroProportion, days, 
+          n0 = c(rep(0, immatureStages - 1), 1, rep(0, length(dayVectorCon))), 
+          macroGLM = glmMacro, nouraGLM = glmNoura, 
+          macroLeslief = macroLeslie, nouraLeslief = nouraLeslie, 
+          macroHeterof = macroHetero, nouraHeterof = nouraHetero, 
+          returnProportion = T){
+  # function to project future composition of mixed population 
+    # of macro & noura
+  if(startingMacroProportion < 0 | startingMacroProportion > 1){
+    cat("Warning: startingMacroProportion requires a proportion, returning NA.\n")
+    res = NA
+    } # end conditional to check for proportion
+  if(startingMacroProportion >= 0 & startingMacroProportion <= 1){
+    if(returnProportion == F){
+      # The function returns the final proportion by default, but if returnProportion
+        # is false then the function returns the time series of noura and macro 
+        # abundance through time.
+      resNum = as.data.frame(matrix(NA, nrow = days, ncol = 4))
+      colnames(resNum) <- c("m.con", "n.con", "m.hetero", "n.hetero")
+      # This conditional sets up an empty matrix that will be filled in
+        # during the for loop below
+      }
+    
+    # macro
+    macroN = startingMacroProportion * n0
+    # vectors to track conspecific & heterospecifically mated females
+    con.macroN = macroN 
+    hetero.macroN = rep(0, length(macroN))
+    
+    # noura
+    nouraN = (1 - startingMacroProportion) * n0
+    con.nouraN = nouraN
+    hetero.nouraN = rep(0, length(nouraN)) 
+    # initially no females in heterospecifically mated vector
+    
+    for (i in 1:days){
+      # first calculate fraction of adults in each species:
+      fracAdultMacro = sum(macroN[-(1:2)]) / (sum(macroN[-(1:2)]) + 
+                                                sum(nouraN[-(1:2)]))
+      fracAdultNoura = sum(nouraN[-(1:2)]) / (sum(macroN[-(1:2)]) + 
+                                                sum(nouraN[-(1:2)]))
+      
+      # second calculate the expected fraction of adult macro & 
+        # noura females in heterospecific matings:
+      fracHeteroMacro = predGLM24(fracAdultMacro, macroGLM)
+      fracHeteroNoura = predGLM24(fracAdultNoura, nouraGLM)
+
+      # day 0 females are the immatureStages-th entry in the
+        # population vector
+      macroDAll.hetero = fracHeteroMacro * con.macroN[3:length(con.macroN)]
+      nouraDAll.hetero = fracHeteroNoura * con.nouraN[3:length(con.nouraN)]
+
+      # eggs from heterospecifically mated females:
+        # Those eggs need to be moved to the conspecific-mated vector
+        # so they don't suffer ill-effects of heterospecific mating
+        # when they mature.
+      macroEgg.hetero = hetero.macroN[1]
+      nouraEgg.hetero = hetero.nouraN[1]
+      
+      con.macroN    = con.macroN    + c(macroEgg.hetero, 0, -macroDAll.hetero)
+      hetero.macroN = hetero.macroN - c(macroEgg.hetero, 0, -macroDAll.hetero)
+      
+      con.macroN = macroLeslief %*% con.macroN
+      hetero.macroN = macroHeterof %*% hetero.macroN
+      macroN = con.macroN + hetero.macroN
+      
+      con.nouraN    = con.nouraN    + c(nouraEgg.hetero, 0, -nouraDAll.hetero)
+      hetero.nouraN = hetero.nouraN - c(nouraEgg.hetero, 0, -nouraDAll.hetero)
+      
+      con.nouraN = nouraLeslief %*% con.nouraN
+      hetero.nouraN = nouraHeterof %*% hetero.nouraN
+      nouraN = con.nouraN + hetero.nouraN
+      
+      if(returnProportion == F){
+        # fill in emtpy matrix with numbers of heterospecifically and 
+          # conspecifically-mated females of each species
+        resNum$m.con[i]    = sum(con.macroN)
+        resNum$n.con[i]    = sum(con.nouraN)
+        resNum$m.hetero[i] = sum(hetero.macroN)
+        resNum$n.hetero[i] = sum(hetero.nouraN)
+        } # end if statement to fill in matrix if returnProportion is false
+      
+      } # end for loop to calculate new stage numbers
+    numMacro = sum(macroN)
+    numNoura = sum(nouraN)
+    res = numMacro / (numNoura + numMacro)
+    # the following conditional returns numbers rather than proportions
+      # (if that option is sepected)
+    if(returnProportion == F){res=resNum}
+    } # end condition that proportion is a plausible proportion
+  return(res)
+  } # end future composition function
+
+```
+
+## Case 4: Random mating
+
+Finally, we project species frequencies assuming that heterospecific mating is indiscriminate, occurring at the frequency of the other species. As in case 3, we assume that heterospecific mating can occur at any day during a female's life.
+
+```{r, tidy=FALSE}
+futureCompositionRandomMating = function(startingMacroProportion, days, 
+          n0 = c(rep(0, immatureStages - 1), 1, rep(0, length(dayVectorCon))), 
+          macroLeslief = macroLeslie, nouraLeslief = nouraLeslie, 
+          macroHeterof = macroHetero, nouraHeterof = nouraHetero, 
+          returnProportion = T){
+  # function to project future composition of mixed population 
+    # of macro & noura
+  if(startingMacroProportion < 0 | startingMacroProportion > 1){
+    cat("Warning: startingMacroProportion requires a proportion, returning NA.\n")
+    res = NA
+    } # end conditional to check for proportion
+  if(startingMacroProportion >= 0 & startingMacroProportion <= 1){
+    if(returnProportion == F){
+      # The function returns the final proportion by default, but if returnProportion
+        # is false then the function returns the time series of noura and macro 
+        # abundance through time.
+      resNum = as.data.frame(matrix(NA, nrow = days, ncol = 4))
+      colnames(resNum) <- c("m.con", "n.con", "m.hetero", "n.hetero")
+      # This conditional sets up an empty matrix that will be filled in
+        # during the for loop below
+      }
+    
+    # macro
+    macroN = startingMacroProportion * n0
+    # vectors to track conspecific & heterospecifically mated females
+    con.macroN = macroN 
+    hetero.macroN = rep(0, length(macroN))
+    
+    # noura
+    nouraN = (1 - startingMacroProportion) * n0
+    con.nouraN = nouraN
+    hetero.nouraN = rep(0, length(nouraN)) 
+    # initially no females in heterospecifically mated vector
+    
+    for (i in 1:days){
+      # first calculate fraction of adults in each species:
+      fracAdultMacro = sum(macroN[-(1:2)]) / (sum(macroN[-(1:2)]) + 
+                                                sum(nouraN[-(1:2)]))
+      fracAdultNoura = sum(nouraN[-(1:2)]) / (sum(macroN[-(1:2)]) + 
+                                                sum(nouraN[-(1:2)]))
+      
+      # second calculate the expected fraction of adult macro & 
+        # noura females in heterospecific matings:
+      fracHeteroMacro = fracAdultNoura
+      fracHeteroNoura = fracAdultMacro
+
+      # day 0 females are the immatureStages-th entry in the
+        # population vector
+      macroDAll.hetero = fracHeteroMacro * con.macroN[3:length(con.macroN)]
+      nouraDAll.hetero = fracHeteroNoura * con.nouraN[3:length(con.nouraN)]
+
+      # eggs from heterospecifically mated females:
+        # Those eggs need to be moved to the conspecific-mated vector
+        # so they don't suffer ill-effects of heterospecific mating
+        # when they mature.
+      macroEgg.hetero = hetero.macroN[1]
+      nouraEgg.hetero = hetero.nouraN[1]
+      
+      con.macroN    = con.macroN    + c(macroEgg.hetero, 0, -macroDAll.hetero)
+      hetero.macroN = hetero.macroN - c(macroEgg.hetero, 0, -macroDAll.hetero)
+      
+      con.macroN = macroLeslief %*% con.macroN
+      hetero.macroN = macroHeterof %*% hetero.macroN
+      macroN = con.macroN + hetero.macroN
+      
+      con.nouraN    = con.nouraN    + c(nouraEgg.hetero, 0, -nouraDAll.hetero)
+      hetero.nouraN = hetero.nouraN - c(nouraEgg.hetero, 0, -nouraDAll.hetero)
+      
+      con.nouraN = nouraLeslief %*% con.nouraN
+      hetero.nouraN = nouraHeterof %*% hetero.nouraN
+      nouraN = con.nouraN + hetero.nouraN
+      
+      if(returnProportion == F){
+        # fill in emtpy matrix with numbers of heterospecifically and 
+          # conspecifically-mated females of each species
+        resNum$m.con[i]    = sum(con.macroN)
+        resNum$n.con[i]    = sum(con.nouraN)
+        resNum$m.hetero[i] = sum(hetero.macroN)
+        resNum$n.hetero[i] = sum(hetero.nouraN)
+        } # end if statement to fill in matrix if returnProportion is false
+      
+      } # end for loop to calculate new stage numbers
+    numMacro = sum(macroN)
+    numNoura = sum(nouraN)
+    res = numMacro / (numNoura + numMacro)
+    # the following conditional returns numbers rather than proportions
+      # (if that option is sepected)
+    if(returnProportion == F){res=resNum}
+    } # end condition that proportion is a plausible proportion
+  return(res)
+  } # end future composition function
+
+```
+
+Now we actually run each of these function to obtain the projected fraction of *C. macrosperma* at the end of the experiment.
+```{r, tidy=FALSE}
+startingMacroProportions = t(t(seq(0.01, 0.99, by = 0.01)))
+maxDay = 24 # days to run the experiment
+
+# case 1
+# project assuming no heterospecific mating
+endingMacroProportionsNoIntersp   = apply(startingMacroProportions, 1, 
+                                          futureCompositionNoHeterosp, days = maxDay)
+
+# case 2
+# project assuming all heterospecific sperm invasion happens 
+  # within the first six hours of exposure
+  # and females suffer no ill effects if they encounter heterospecific sperm after day 0
+endingMacroProportionsConservative6   = apply(startingMacroProportions, 1, 
+                                     futureCompositionConservative, days = maxDay)
+
+# case 3
+# second project assuming heterospecific sperm invasion happens
+  # beyond the first six hours of exposure
+  # and females suffer ill effects if they encounter heterospecific sperm later in life
+endingMacroProportionsHiCost24 = apply(startingMacroProportions, 1, 
+                              futureCompositionHigherCost, days = maxDay)
+
+# case 4
+# project assuming random mating
+endingMacroProportionsRandom = apply(startingMacroProportions, 1,
+                                     futureCompositionRandomMating, days = maxDay)
+```
+
+# Comparing to experimental outcomes
+## Experimental data and long-term population growth rates
+The data from the lifetime fecundity experiment can be used to estimate the difference in the long-term population growth rates between the two species, and the impact of heterospecific mating. These data are missing day 5 estimates (either counts of the dead individuals or eggs laid), so we assume no death (100% survival) on day 5, and we interpolate the day 4 and day 6 values to estimate day 5 fecundity for both species. Long-term population growth rates are given by the largest (dominant) eigenvalue of the Leslie matrix for the population, assuming that the population continues to grow exponentially.
+
+```{r, tidy = F}
+sexRatio = 0.5
+immatureStagesLife = 2 # for the lifetime data, two immature stages 
+  # (day 0 fecundity already represented in mx vector)
+macroLifetime = matrix(0, nrow = length(dayVectorLife) + immatureStagesLife + 1, 
+                     ncol = length(dayVectorLife) + immatureStagesLife + 1)
+macroLifetime[1, c((immatureStagesLife + 1):(immatureStagesLife + 
+                                       length(mx.macro.life)))] <- 
+                                       t(unname(mx.macro.life * sexRatio)) 
+# first row is the age-specific fecundities
+# lower off-diagonal entries are the survival fractions:
+macroLifetime[cbind(c(2:length(macroLifetime[ , 1])), 
+                  c(1:(length(macroLifetime[ , 1]) - 1)))] <- c(rep(1, 
+                                                                    immatureStagesLife), 
+                                                                sx.macro.life)
+
+nouraLifetime = matrix(0, nrow = length(dayVectorLife) + immatureStagesLife + 1, 
+                     ncol = length(dayVectorLife) + immatureStagesLife + 1)
+nouraLifetime[1, c((immatureStagesLife + 1):(immatureStagesLife + 
+                                       length(mx.noura.life)))] <- 
+                                       t(unname(mx.noura.life * sexRatio)) 
+# first row is the age-specific fecundities
+# lower off-diagonal entries are the survival fractions:
+nouraLifetime[cbind(c(2:length(nouraLifetime[ , 1])), 
+                  c(1:(length(nouraLifetime[ , 1]) - 1)))] <- c(rep(1, 
+                                                                    immatureStagesLife), 
+                                                                sx.noura.life)
+```
+
+We can estimate the long-term growth advantage of *C. nouraguensis* by compiling the fecundity and survival data from the lifetime fecundity experiment into Leslie matrices (\texttt{macroLifetime} for *C. macrosperma* and \texttt{nouraLifetime} for *C. nouraguensis*).
+
+```{r, tidy = F}
+# lifetime fecundity data
+# long term population growth rate for C. macrosperma by itself
+  # (the Mod function discards the imaginary portion)
+Mod(eigen(macroLifetime)$values[1])
+
+# lifetime fecundity data
+# long term population growth rate for C. nouraguensis by itself
+Mod(eigen(nouraLifetime)$values[1])
+
+# estimate advantage for C. nouraguensis in the absence of heterospecific mating
+  # and assuming no sperm limitation
+Mod(eigen(nouraLifetime)$values[1])/Mod(eigen(macroLifetime)$values[1])
+```
+
+We likewise estimate the long-term growth advantage of *C. nouraguensis* by compiling the fecundity and survival data from the total fecundity experiment (conspecific matings only) into Leslie matrices (\texttt{macroLeslie} for *C. macrosperma* and \texttt{nouraLeslie} for *C. nouraguensis*).
+
+```{r, tidy = F}
+# total fecundity data (sperm-limited)
+# long term population growth rate for C. macrosperma by itself
+  # (the Mod function discards the imaginary portion)
+Mod(eigen(macroLeslie)$values[1])
+
+# total fecundity data (sperm-limited)
+# long term population growth rate for C. nouraguensis by itself
+Mod(eigen(nouraLeslie)$values[1])
+
+# total fecundity data (sperm-limited)
+# estimate advantage for C. nouraguensis in the absence of heterospecific mating
+Mod(eigen(nouraLeslie)$values[1])/Mod(eigen(macroLeslie)$values[1])
+
+```
+
+Based on the lifetime fecundity data, in which sperm were not limiting and there was no opportunity for heterospecific matings, *C. nouraguensis* would be estimated to have nearly a 29\% advantage in its long term growth rate. When sperm-limited (total fecundity data), that advantage shrinks to approximately 7\%. We next consider the impact of heterospecific mating by calculating the dominant eigenvalues for the respective Leslie matrices for *C. macrosperma* and *C. nouraguensis* (\texttt{macroHetero} and \texttt{nouraHetero}) from the total fecundity experiment that included heterospecific mating (and sperm limitation).
+
+```{r, tidy = F}
+Mod(eigen(macroHetero)$values[1])
+
+Mod(eigen(nouraHetero)$values[1])
+
+estLambdaCostNoura = 1-Mod(eigen(nouraHetero)$values[1])/Mod(eigen(nouraLeslie)$values[1])
+estLambdaCostNoura
+```
+
+These data suggest that (1) *C. macrosperma* females suffer minimally from heterospecific matings and (2) that if all *C. nouraguensis* females in the population were subject to heterospecific mating, then the population growth rate would suffer more than 30\%.
+
+# Simulate experimental results under different heterospecific mating rates and fecundity costs
+
+We create a function called \texttt{futureCompositionInferredCost} to take the starting proportion of *C. macrosperma* and return the final proportion of that species after \texttt{maxDay} days (here 24, in line with the experimental data). This function takes as arguments the Leslie matrices for *C. macrosperma* and *C. nouraguensis* as well as the slope that determines how the rate of heterospecific matings for *C. nouraguensis* varies with their fraction in the community (\texttt{assortMatingSlope}), and the subsequent fraction fecundity cost (\texttt{fecCost}).
+
+```{r, tidy=FALSE}
+maxDay = 24 # length of experiment
+
+fracHetero = function(nouraFrac, assortMatingSlope){
+  predHeterospRaw = coef(glmNoura)[[1]] - assortMatingSlope * nouraFrac
+  heteroFrac = 1-exp(-4*exp(predHeterospRaw))
+  return(heteroFrac)
+  }
+
+futureCompositionInferredCostTotal = function(startingMacroProportion, days, 
+                                         aMatSlope, fecCost,
+                                         n0 = c(rep(0, immatureStages - 1), 1, 
+                                                rep(0, length(dayVectorCon))), 
+                                         returnProportion = T){
+  # function to project future composition of mixed population 
+    # of macro & noura
+  if(startingMacroProportion < 0 | startingMacroProportion > 1){
+    cat("Warning: startingMacroProportion requires a proportion, returning NA.\n")
+    res = NA
+    } # end conditional to check for proportion
+  if(startingMacroProportion >= 0 & startingMacroProportion <= 1){
+    if(returnProportion == F){
+      # The function returns the final proportion by default, but if returnProportion
+        # is false then the function returns the time series of noura and macro 
+        # abundance through time.
+      resNum = as.data.frame(matrix(NA, nrow = days, ncol = 3))
+      colnames(resNum) <- c("m.all", "n.con", "n.hetero")
+      # This conditional sets up an empty matrix that will be filled in
+        # during the for loop below
+      }
+
+    immatureStages = 3 # for the total data, three immature stages 
+    sexRatio = 0.5
+
+    nouraHeteroMod = matrix(0, nrow = length(dayVectorCon) + immatureStages, 
+                            ncol = length(dayVectorCon) + immatureStages)
+    nouraHeteroMod[1, c((immatureStages + 1):(immatureStages + 
+                                                    length(mx.noura.con)))] <- 
+      t(unname((1-fecCost) * mx.noura.con * sexRatio)) 
+    # first row is the age-specific fecundities
+    # lower off-diagonal entries are the survival fractions:
+    nouraHeteroMod[cbind(c(2:length(nouraLeslie[ , 1])), 
+                         c(1:(length(nouraLeslie[ , 1]) - 1)))] <- c(rep(1, 
+                                                                     immatureStages - 1), 
+                                                                     sx.noura.con)
+    
+    # macro
+    macroN = startingMacroProportion * n0
+
+    # noura
+    nouraN = (1 - startingMacroProportion) * n0
+    # vectors to track conspecific & heterospecifically mated females
+    con.nouraN = nouraN
+    hetero.nouraN = rep(0, length(nouraN)) 
+    # initially no females in heterospecifically mated vector
+    
+    for (i in 1:days){
+      # first calculate fraction of adults in each species:
+      fracAdultMacro = sum(macroN[-(1:2)]) / (sum(macroN[-(1:2)]) + 
+                                                sum(nouraN[-(1:2)]))
+      fracAdultNoura = sum(nouraN[-(1:2)]) / (sum(macroN[-(1:2)]) + 
+                                                sum(nouraN[-(1:2)]))
+      
+      # second calculate the expected fraction of 
+        # adult noura females in heterospecific matings:
+      fracHeteroNoura = fracHetero(nouraFrac = fracAdultNoura, 
+                                   assortMatingSlope = aMatSlope)
+      
+      # day 0 females are the immatureStages-th entry in the
+        # population vector
+      nouraDAll.hetero = fracHeteroNoura * con.nouraN[3:length(con.nouraN)]
+
+      # eggs from heterospecifically mated females:
+        # Those eggs need to be moved to the conspecific-mated vector
+        # so they don't suffer ill-effects of heterospecific mating
+        # when they mature.
+      nouraEgg.hetero = hetero.nouraN[1]
+      
+      macroN = macroLeslie %*% macroN
+      
+      con.nouraN    = con.nouraN    + c(nouraEgg.hetero, 0, -nouraDAll.hetero)
+      hetero.nouraN = hetero.nouraN - c(nouraEgg.hetero, 0, -nouraDAll.hetero)
+      
+      con.nouraN = nouraLeslie %*% con.nouraN
+      hetero.nouraN = nouraHeteroMod %*% hetero.nouraN
+      nouraN = con.nouraN + hetero.nouraN
+      
+      if(returnProportion == F){
+        # fill in emtpy matrix with numbers of heterospecifically and 
+          # conspecifically-mated females of each species
+        resNum$m.all[i]    = sum(macroN)
+        resNum$n.con[i]    = sum(con.nouraN)
+        resNum$n.hetero[i] = sum(hetero.nouraN)
+        } # end if statement to fill in matrix if returnProportion is false
+      
+      } # end for loop to calculate new stage numbers
+    numMacro = sum(macroN)
+    numNoura = sum(nouraN)
+    res = numMacro / (numNoura + numMacro)
+    # the following conditional returns numbers rather than proportions
+      # (if that option is sepected)
+    if(returnProportion == F){res=resNum}
+    } # end condition that proportion is a plausible proportion
+  return(res)
+  } # end future composition function
+```
+
+## Comparing to experimental outcomes
+We now import data on the results of the reproductive interference experiment, with final proportions of both species assessed from amplicon data.
+
+```{r, tidy=FALSE, message = F}
+library(dplyr)
+#data check
+amplicons <- read.table("FileS7_BestBlast.txt", header = TRUE, sep = "\t")
+qc <- as.data.frame(summarise(group_by(amplicons, amplicon), mean(identity), 
+                              sd(identity), mean(alignment.length), 
+                              sd(alignment.length), min(alignment.length), 
+                              mean(mismatches), sd(mismatches)))
+#total reads: 4,443,793
+#macrosperma: 2,962,567
+#nouraguensis: 1,481,226
+
+amplicons$replicate2 <- substr(amplicons$replicate, start = 1, stop = 6)
+amplicons$replicate2[amplicons$replicate2 == "Ctl_R1"] <- "CTL"
+amplicons$replicate2[amplicons$replicate2 == "Ctl_R2"] <- "CTL"
+
+#tabulate allele counts and calculate frequencies
+freq.table <- c();
+for (i in 1:length(levels(as.factor(amplicons$replicate2)))) {
+  A <- amplicons[amplicons$replicate2 == levels(as.factor(amplicons$replicate2))[i], ];
+  
+  B <- as.data.frame(table(A$amplicon))
+  
+  freq.table <- rbind(freq.table, data.frame(ID    = A$replicate2[1],
+                                             MACRO = B[1, 2],
+                                             NOUR  = B[2, 2]))
+}
+
+freq.table$TOTAL   <- rowSums(freq.table[, 2:3])
+freq.table$F.MACRO <- freq.table$MACRO / freq.table$TOTAL
+freq.table$F.NOUR  <- freq.table$NOUR / freq.table$TOTAL
+freq.table$DAY     <- c(-1, rep(11, 15), rep(24, 15), rep(4, 15))
+freq.table$TREATMENT <- c("CTL", substr(freq.table[2:31, 1], start = 6, stop = 6), 
+                          substr(freq.table[32:46, 1], start = 5, stop = 5))
+freq.table$REP <- c("CTL", substr(freq.table[2:31, 1], start = 4, stop = 5), 
+                    substr(freq.table[32:46, 1], start = 3, stop = 4))
+
+
+ids  <- c("D1R1C", "D1R2C", "D1R3C", "D1R4C", "D1R5M", "D1R1M", "D1R2M", "D1R3M", 
+          "D1R4M", "D1R5M", "D1R1N", "D1R2N", "D1R3N", "D1R4N", "D1R5N")
+wrms <- c(rep(500, 5), rep(800, 5), rep(200, 5))
+trts <- c(rep("C", 5), rep("M", 5), rep("N", 5))
+rps  <- c(rep(c("R1", "R2", "R3", "R4", "R5"), 3))
+for (j in 1:length(ids)) {
+  freq.table <- rbind(freq.table, data.frame(ID = ids[j],
+                                             MACRO = wrms[j],
+                                             NOUR  = (1000 - wrms[j]),
+                                             TOTAL = 1000,
+                                             F.MACRO = (wrms[j] / 1000),
+                                             F.NOUR  = ((1000 - wrms[j]) / 1000),
+                                             DAY = 1,
+                                             TREATMENT = trts[j],
+                                             REP = rps[j]))
+}
+
+
+# estimate competition coefficient favoring macrosperma (positive slope) 
+  # or favoring nouraguensis (negative slope)
+competition.CTL <- glm(cbind(MACRO, NOUR) ~ DAY, family = binomial(link = "logit"), 
+                       data = subset(freq.table, TREATMENT == "C"))
+summary(competition.CTL)
+
+competition.M <- glm(cbind(MACRO, NOUR) ~ DAY, family = binomial(link = "logit"), 
+                     data = subset(freq.table, TREATMENT == "M"))
+summary(competition.M)
+
+competition.N <- glm(cbind(MACRO, NOUR) ~ DAY, family = binomial(link = "logit"), 
+                     data = subset(freq.table, TREATMENT == "N"))
+summary(competition.N)
+```
+
+```{r, tidy = F, results = F}
+#Supplement
+library(RColorBrewer)
+png("FreqMacrospermaOverTime.png", height = 3.5, width = 6.5, 
+    units = "in", res = 300)
+#Plot frequency of macrosperma over time
+par(mfrow = c(1, 3))
+#control
+colramp1 <- colorRampPalette(brewer.pal(9, "Purples"))
+mycols1 <- colramp1(10)
+A <- subset(freq.table, TREATMENT == "C")
+
+plot(freq.table[2, 7], freq.table[2, 5], type = "n", bty = "l", 
+     xlim = c(0, 25), ylim = c(0, 1), las = 1, xlab = "Day", 
+     ylab = "Frequency of C. macrosperma", main = "50:50 Treatment")
+for (l in 1:5) {
+  AA <- subset(A, REP==levels(as.factor(A$REP))[l])
+  AA <- AA[order(AA$DAY, decreasing = FALSE), ]
+  lines(AA$DAY, AA$F.MACRO, pch = 20, type = "o", cex = 1.5, col = mycols1[l+3])
+}
+abline(h = 0.5, lty = "dashed", col = "gray70")
+legend("bottomleft", c("z = 71.1", "p < 2e-16", 
+                       "comp.coef = 0.016 favoring macro"), bty = "n")
+
+#macrosperm-skewed treatment
+colramp2 <- colorRampPalette(brewer.pal(9, "Blues"))
+mycols2 <- colramp2(10)
+B <- subset(freq.table, TREATMENT == "M")
+
+plot(freq.table[2, 7], freq.table[2, 5], type = "n", bty = "l", 
+     xlim = c(0, 25), ylim = c(0, 1), las = 1, xlab = "Generation", 
+     ylab = "Frequency of C. macrosperma", main = "Macro-Skewed Treatment")
+for (l in 1:5) {
+  BB <- subset(B, REP==levels(as.factor(B$REP))[l])
+  BB <- BB[order(BB$DAY, decreasing = FALSE), ]
+  lines(BB$DAY, BB$F.MACRO, pch = 17, type = "o", cex = 1.5, col = mycols2[l+3])
+}
+abline(h = 0.8, lty = "dashed", col = "gray70")
+legend("bottomleft", c("z = 74.0", "p < 2e-16", 
+                       "comp.coef = 0.026 favoring macro"), bty = "n")
+
+#nouraguensis-skewed treatment
+colramp3 <- colorRampPalette(brewer.pal(9, "Reds"))
+mycols3 <- colramp3(10)
+C <- subset(freq.table, TREATMENT == "N")
+
+plot(freq.table[2, 7], freq.table[2, 5], type = "n", bty = "l", 
+     xlim = c(0, 25), ylim = c(0, 1), las = 1, xlab = "Generation", 
+     ylab = "Frequency of C. macrosperma", main = "Noura-Skewed Treatment")
+for (l in 1:5) {
+  CC <- subset(C, REP==levels(as.factor(C$REP))[l])
+  CC <- CC[order(CC$DAY, decreasing = FALSE), ]
+  lines(CC$DAY, CC$F.MACRO, pch = 15, type = "o", cex = 1.5, col = mycols3[l+3])
+}
+abline(h = 0.2, lty = "dashed", col = "gray70")
+legend("bottomleft", c("z = 223.9", "p < 2e-16", 
+                       "comp.coef = 0.059 favoring macro"), bty = "n")
+
+dev.off()
+
+library(scales)
+png("SampleSizes.png", height = 6, width = 6, units = "in", res = 300)
+#sample sizes
+par(mfrow = c(1, 3))
+barplot(c(2*60, 8*60, 8*60), las = 1, names.arg = c("D4", "D11", "D24"), 
+        ylim = c(0, 500), ylab = "Mean Sample Size", main = "50:50 treatment",
+        col = alpha(c("gray50"), 0.25), border = "gray40", lwd = 1.5)
+barplot(c(3*60, 8*60, 8*60), las = 1, names.arg = c("D4", "D11", "D24"), 
+        ylim = c(0, 500), ylab = "Mean Sample Size", main = "Macro-Skewed treatment",
+        col = alpha(c("gray50"), 0.25), border = "gray40", lwd = 1.5)
+barplot(c(3*60, 8*60, 8*60), las = 1, names.arg = c("D4", "D11", "D24"), 
+        ylim = c(0, 500), ylab = "Mean Sample Size", main = "Nour-Skewed treatment",
+        col = alpha(c("gray50"), 0.25), border = "gray40", lwd = 1.5)
+
+dev.off()
+
+realProp = freq.table
+res.maxDay = realProp[realProp$DAY==maxDay,]
+res.maxDay$start.prop = 0.5
+res.maxDay$start.prop[res.maxDay$TREATMENT=="M"]<-0.8
+res.maxDay$start.prop[res.maxDay$TREATMENT=="N"]<-0.2
+meanPropsMacro = aggregate(realProp$F.MACRO[realProp$DAY==maxDay],
+                           by = list(realProp$TREATMENT[realProp$DAY==maxDay]), mean)
+colnames(meanPropsMacro) <- c("treatment", "final.prop")
+meanPropsMacro$start.prop = c(0.5, 0.8, 0.2)
+minPropsMacro = aggregate(realProp$F.MACRO[realProp$DAY==maxDay],
+                           by = list(realProp$TREATMENT[realProp$DAY==maxDay]), min)
+colnames(minPropsMacro) <- c("treatment", "final.prop")
+minPropsMacro$start.prop = c(0.5, 0.8, 0.2)
+maxPropsMacro = aggregate(realProp$F.MACRO[realProp$DAY==maxDay],
+                           by = list(realProp$TREATMENT[realProp$DAY==maxDay]), max)
+colnames(maxPropsMacro) <- c("treatment", "final.prop")
+maxPropsMacro$start.prop = c(0.5, 0.8, 0.2)
+```
+
+We then find the fecundity cost and rate at which the fraction of *C. nouraguensis* females with *C. macrosperma* sperm declines as the fraction of *C. nouraguensis* increases. Specifically, we constrain the fecundity cost to scale between zero and one (a proportion) by taking the complementary log log. We then retain the intercept obtained in the generalized linear model fit for assortative mating and allow the slope to vary, assuming that the rate predicted by that glm fit is maintained throughout each 24 hour period. Using \texttt{optim}, we locate the fecundity cost and assortative mating slope that minimizes the sum squared error between the predicted and observed ending frequencies of *C. macrosperma* after 24 days.
+
+```{r, tidy = F, cache = T, results = F}
+# load optimr for model fitting
+library(optimx)
+
+objfxTotal = function(parms, data, optimization=T){
+  fecCost = exp(-exp(parms[1])) # varies between zero and one
+  assortMatingRate = exp(parms[2]) # nonnegative
+  # if optimization is NA, return parameter values
+  if(is.na(optimization)){res = c(fecCost, assortMatingRate)}
+  # if optimization is nonmissing, return either the sum squared error (default)
+    # or the predicted values
+  if(!is.na(optimization)){
+    startingProps = unique(data$start.prop)
+    endingProps = apply(t(startingProps),2, futureCompositionInferredCostTotal,
+                      days = maxDay, aMatSlope = assortMatingRate, fecCost = fecCost)
+    predEnd = rep(NA, length(data$start.prop))
+    predEnd[data$start.prop==startingProps[1]] = endingProps[1]
+    predEnd[data$start.prop==startingProps[2]] = endingProps[2]
+    predEnd[data$start.prop==startingProps[3]] = endingProps[3]
+    if(optimization == F){
+      allEndingProps = apply(t(startingMacroProportions),2, 
+                             futureCompositionInferredCostTotal,
+                      days = maxDay, aMatSlope = assortMatingRate, fecCost = fecCost)
+      res = allEndingProps}
+    if(optimization == T){res = sum((predEnd - data$F.MACRO)^2)}
+    } # end conditional: is optimization nonmissing?
+  
+  return(res)
+  } # end objective function for total fecundity data
+
+totalRandom = function(i){
+  convergence = 1
+  while(convergence>0){
+    startingGuess = c(runif(1,-10,10), runif(1,-2,2))
+    totalFit = optimx(startingGuess, objfxTotal, data = res.maxDay, 
+                      method = "Nelder-Mead", control = list(maxit = 1000))
+    # check convergence (should be zero)
+    convergence = totalFit$convcode}
+  
+  bestTotalParms = objfxTotal(c(totalFit$p1, totalFit$p2), data = NA, optimization=NA)
+  bestTotalEndingProps = objfxTotal(c(totalFit$p1, totalFit$p2), data = res.maxDay,
+                                    optimization = F)
+  return(list(c(bestTotalParms, bestTotalEndingProps, totalFit$value)))
+  } # end totalRandom function
+
+runs = 100
+totalRes = lapply(as.list(1:runs), totalRandom)
+totalColumns = round(length(unlist(totalRes)) / runs)
+totalResTable = matrix(unlist(totalRes), nrow = runs,
+                       ncol = totalColumns, byrow = T)
+bestTotalFecCost = totalResTable[which.min(totalResTable[,totalColumns]),1]
+bestTotalAssortMatingSlope = totalResTable[which.min(totalResTable[,totalColumns]),2]
+bestTotalFitEndingProp = totalResTable[which.min(totalResTable[,totalColumns]),
+                                       3:(totalColumns - 1)]
+```
+
+We now plot how model-estimated assortative mating rates and fecundity costs match up with the results from the competition experiment (plot written as separate file).
+
+```{r, tidy = F, results = F}
+
+modelCol = "gray70"
+meanProp = aggregate(res.maxDay[,5], by = list(res.maxDay$start.prop), mean)
+sdProp = aggregate(res.maxDay[,5], by = list(res.maxDay$start.prop), sd)
+seProp = sdProp$x/sqrt(5)
+seCol = "#CB181D"
+meanChange = aggregate(res.maxDay[,5]-res.maxDay$start.prop, 
+                       by = list(res.maxDay$start.prop), mean)
+sdChange = aggregate(res.maxDay[,5]-res.maxDay$start.prop, 
+                       by = list(res.maxDay$start.prop), sd)
+seChange = sdChange$x/sqrt(5)
+
+tiff("DataVsModelProjections.tiff", height = 3.25, width = 6.5, 
+           units = "in", res = 300)
+
+dataCol = "#CB181D"
+cexVal = 0.95
+keyWidth = 0.23
+par(fig = c(0,(1-keyWidth)/2+keyWidth,0,1), bty = 'n', oma = c(0,0,0,0.5), 
+    mar = c(2.5,2.5,2,9), xpd = NA)
+plot(range(startingMacroProportions), 
+     range(startingMacroProportions), 
+     type='l', lty = 3, col = 'black', xlim = c(0, 1), ylim = c(0, 1), 
+     xaxt = 'n', yaxt = 'n', xlab = "", ylab = "", xaxs = 'i', yaxs = 'i')
+axis(1, at = seq(0, 1, by = 1), labels = 100*seq(0, 1, by = 1), tcl = -0.1, 
+     mgp = c(3, 0.1, 0), cex.axis = cexVal)
+axis(1, at = seq(0.2, 0.8, by = 0.2), labels = 100*seq(0.2, 0.8, by = 0.2), tcl = -0.1, 
+     mgp = c(3, 0.1, 0), cex.axis = cexVal)
+mtext(expression("Starting %"~italic("C. macrosperma")), side=1,
+      line = 1.3, cex = cexVal)
+axis(2, at = seq(0, 1, by = 0.2), labels = 100*seq(0, 1, by = 0.2), las = 2, 
+     tcl = -0.1, mgp = c(3, 0.2, 0), cex.axis = cexVal)
+mtext(expression("Ending %"~italic("C. macrosperma")),side=2,line = 1.3,cex=cexVal)
+points(startingMacroProportions, endingMacroProportionsNoIntersp, type = 'l',
+       lty = 1, lwd = 4, col = 'gray80')
+points(startingMacroProportions, endingMacroProportionsConservative6, type = 'l', 
+       lty = 1, lwd = 3, col = 'gray70')
+points(startingMacroProportions, endingMacroProportionsHiCost24, type = 'l', 
+     col = 'gray60', lwd = 2)
+points(startingMacroProportions, endingMacroProportionsRandom, type = 'l', 
+       lwd = 1, col = 'gray40')
+# obs results
+points(res.maxDay$start.prop, res.maxDay$F.MACRO, pch = 19, col = dataCol,
+       cex = 0.8*cexVal)
+segments(x0 = meanProp$Group.1, y0 = meanProp$x-seProp, y1 = meanProp$x+seProp, 
+         col = 'white', lwd = 2.5, lend = 1)
+points(meanProp$Group.1, meanProp$x, pch = 18, col = 'white', cex = 1)
+segments(x0 = meanProp$Group.1, y0 = meanProp$x-seProp, y1 = meanProp$x+seProp, 
+         col = seCol, lwd = 1, lend = 1)
+points(meanProp$Group.1, meanProp$x, pch = 18, col = seCol, cex = 0.8*cexVal)
+
+lVal = legend(x = 1*1.05, y = 1, 
+              legend = c(expression("observed"),
+                         expression("mean"%+-%"SE"), 
+                         expression(phantom("projected")), 
+                         expression(phantom("heterosp. mating occurs over")),
+                         expression(phantom("heterosp. mating occurs over")),
+                         "0 hrs (none)", expression("1"^"st"~"6 hrs"~phantom("p")),
+                         "whole lifespan", "whole lifespan", "(indiscriminate)"),
+       col = c(dataCol, dataCol, NA, NA, NA, 'gray80', 'gray70','gray60','gray40',NA), 
+       lty = c(NA, 1, NA, NA, NA, 1, 1, 1, 1,NA), 
+       lwd = c(NA, 1, 0, 0, 0, 4, 3, 2, 1, NA), 
+       pch = c(19, 18, NA, NA, NA, NA, NA, NA, NA,NA), bty ='n', 
+       y.intersp = 1.1)
+text(x = lVal$rect$left, y = lVal$text$y[3], 
+     expression(italic("projected assuming")), adj = 0)
+text(x = lVal$rect$left, y = lVal$text$y[4], 
+     expression(italic("  heterospecific-mating")), adj = 0)
+text(x = lVal$rect$left, y = lVal$text$y[5], 
+     expression(italic("  occurs over:")), adj = 0)
+text(x = 0, y = 1.1, "A. Model projections versus data", adj=0)
+
+par(new=T, fig = c((1-keyWidth)/2+keyWidth,1,0,1), bty = 'n', mar = c(2.5,2.5,2,0.5), 
+    xpd = NA)
+plot(res.maxDay$start.prop, res.maxDay$F.MACRO - res.maxDay$start.prop, 
+     pch = 19, col = dataCol, cex = 0.8*cexVal, xlim = c(0, 1), ylim = c(0, 0.4), 
+     xaxt = 'n', yaxt = 'n', xlab = "", ylab = "", xaxs = 'i', yaxs = 'i')
+segments(x0 = meanChange$Group.1, y0 = meanChange$x-seChange, y1 = meanChange$x+seChange, 
+         col = 'white', lwd = 2.5, lend = 1)
+points(meanChange$Group.1, meanChange$x, pch = 18, col = 'white', cex = 1)
+segments(x0 = meanChange$Group.1, y0 = meanChange$x-seChange, y1 = meanChange$x+seChange, 
+         col = seCol, lwd = 1, lend = 1)
+points(meanChange$Group.1, meanChange$x, pch = 18, col = seCol, cex = 0.8*cexVal)
+axis(1, at = seq(0, 1, by = 0.2), labels = 100*seq(0, 1, by = 0.2), tcl = -0.1, 
+     mgp = c(3, 0.1, 0), cex.axis = cexVal)
+mtext(expression("Starting %"~italic("C. macrosperma")), side=1,line = 1.3, cex = cexVal)
+axis(2, at = seq(0, 0.4, by = 0.1), labels = 100*seq(0, 0.4, by = 0.1), las = 2, 
+     tcl = -0.1, mgp = c(3, 0.2, 0), cex.axis = cexVal)
+mtext(expression("Change %"~italic("C. macrosperma")),side=2,line = 1.3,cex=cexVal)
+text(x = 0, y = 0.4*1.1, "B. % change over 24 days", adj=0)
+
+dev.off()
+
+tiff("DataVsModelFits.tiff", height = 7, width = 3.25, 
+           units = "in", res = 300)
+
+cexVal = 0.66
+mtextMult = 1
+par(mfrow = c(3, 1), bty = 'n', mar = c(2.5,4,1.5,0.5), xpd = NA, oma = c(0,0,0,0.5))
+plot(range(startingMacroProportions), 
+     range(startingMacroProportions), 
+     type='l', lty = 3, col = 'black', xlim = c(0, 1), ylim = c(0, 1), 
+     xaxt = 'n', yaxt = 'n', xaxs = 'i', yaxs = 'i', xlab = "", ylab = "")
+axis(1, at = seq(0, 1, by = 0.05), labels = NA, tcl = -0.1, mgp = c(3, 0.1, 0))
+axis(1, at = seq(0, 1, by = 0.2), labels = 100*seq(0, 1, by = 0.2), tcl = -0.1, 
+     mgp = c(3, 0.1, 0))
+mtext(expression("Starting %"~italic("C. macrosperma")), side=1,line = 1.4, 
+      cex = mtextMult*cexVal)
+axis(2, at = seq(0, 1, by = 0.2), labels = 100*seq(0, 1, by = 0.2), las = 2, 
+     tcl = -0.1, mgp = c(3, 0.2, 0))
+mtext(expression("Ending %"~italic("C. macrosperma")),side=2,line = 1.6,
+      cex=mtextMult*cexVal)
+# fitted proportions
+points(startingMacroProportions, bestTotalFitEndingProp, type='l', col = modelCol)
+segments(x0 = meanProp$Group.1, y0 = meanProp$x-seProp, y1 = meanProp$x+seProp, 
+         col = seCol, lwd = 1)
+points(meanProp$Group.1, meanProp$x, pch = 18, cex = 1.2, col = seCol)
+legend(x="bottomright", 
+       legend = c(expression("observed mean"%+-%"SE"), 
+                  "fitted model"), 
+       col = c(seCol, modelCol), 
+       pch = c(18, NA),
+       lty = c(1, 1), pt.cex = c(1.2, NA), bty = 'n')
+text(x = 0.05, y = 1, "A. Model fits to data", adj = 0)
+
+plot(1:8, mx.noura.hetero, type = 'n', col = dataCol, xlab = "", ylab = "", 
+     xaxt = 'n', yaxt = 'n', xlim = c(1, 8), ylim = c(0, 60), xaxs = 'i', yaxs = 'i')
+axis(1, tcl = -0.2, mgp = c(3, 0.3, 0))
+mtext("Days", side = 1, line = 1.4,cex=mtextMult*cexVal)
+axis(2, las = 2, tcl = -0.2, mgp = c(3, 0.4, 0))
+mtext(expression("Fecundity,"~italic("C. noura.")~"females"), side = 2, line = 2.7,
+      cex= mtextMult* cexVal)
+mtext("exposed to heterosp. sperm",side=2,line=1.8, cex=mtextMult*cexVal)
+points(1:8, (1 - bestTotalFecCost) * mx.noura.con, type='l', col = modelCol)
+points(1:8, mx.noura.hetero, type = 'l', col = dataCol)
+legend(x = "right", 
+       legend = c("observed", "fitted model", 
+                  paste("(",round(100*bestTotalFecCost),"% cost", ")", sep = '')),
+       col = c(dataCol, modelCol, 'white'), lty = c(1,1,NA), bty = 'n')
+text(x = 1+0.05*7, y = 60, "B. Model fit versus observed fecundity", adj = 0)
+
+ratios = seq(from = 0.01, to = 1,by=0.01)
+plot(c(0,0), c(0,1), type = 'n', xaxt = 'n', yaxt = 'n', xlim = c(0, 1), 
+     ylim = c(0, 1), xlab = "", ylab = "", xaxs = 'i', yaxs = 'i')
+axis(1, at = seq(0, 1, by = 0.05), labels = NA, tcl = -0.1, mgp = c(3, 0.1, 0))
+axis(1, tcl = -0.1, mgp = c(3,0.1,0), at = seq(0,1,by=0.2), 
+     labels = 100*seq(0,1,by=0.2), cex = cexVal)
+mtext(expression("%"~italic("C. macrosperma")), side=1,line = 1.4, 
+      cex = mtextMult*cexVal)
+axis(2, las = 2, tcl = -0.1, mgp = c(3,0.2,0), 
+     at = seq(0,1,by=0.2), labels = 100*seq(0,1,by=0.2))
+mtext(expression("%"~italic("C. nouraguensis")~"females"),side=2,line = 2.7,
+      cex=mtextMult*cexVal)
+mtext("with heterospecific sperm", side=2, line = 1.8, cex=mtextMult*cexVal)
+points(c(0,1),c(0,1), type='l', lty = 3)
+points(1-ratios, predGLM24(ratios, glmNoura), 
+       type = 'l', col = dataCol)
+points(1-ratios, predGLM(ratios, glmNoura), 
+       type = 'l', col = dataCol, lty = 5)
+points(1-noura$ratio, noura$numf.wrong/noura$numf, 
+       col = dataCol, pch = 15)
+points(1-ratios, fracHetero(ratios, assortMatingSlope = bestTotalAssortMatingSlope),
+       type = 'l', col = modelCol)
+legend(x = 0.02, y = 0.85, 
+       legend = c("data, 6 hr exposure", 
+                  expression(italic("glm")~"fit to data"), 
+                  expression(italic("glm")~"fit, est. for 24 hrs"),
+                  "fitted model"),
+       col = c(rep(dataCol,3), modelCol), 
+       pch = c(15, NA, NA, NA),
+       lty = c(NA,5,1,1), y.intersp = 1.2, bty = 'n')
+text(x = 0.05, y = 1, "C. Fitted versus observed heterospecific mating", adj = 0)
+
+dev.off()
+```
+
+```{r, tidy=F}
+min(startingMacroProportions[which(endingMacroProportionsConservative6>
+                                     startingMacroProportions)])
+min(startingMacroProportions[which(endingMacroProportionsHiCost24>
+                                     startingMacroProportions)])
+min(startingMacroProportions[which(endingMacroProportionsRandom>
+                                     startingMacroProportions)])
+
+```
+
+# References
